@@ -261,6 +261,7 @@ class MainActivity : Activity() {
             }
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 tabs.firstOrNull { it.web === web }?.title = title ?: "Web page"
+                if (tabs.getOrNull(activeIndex)?.web === web) renderTabStrip()
             }
         }
         web.setDownloadListener(DownloadListener { url, agent, disposition, mime, _ ->
@@ -290,16 +291,17 @@ class MainActivity : Activity() {
     private fun renderTabStrip() {
         tabStrip.removeAllViews()
         tabs.forEachIndexed { index, tab ->
-            val label = (if (index == activeIndex) "● " else "") + (tab.title.take(18).ifBlank { "New Tab" }) + "  ×"
-            val chip = button(label, index == activeIndex) { closeTab(index) }
-            chip.setOnLongClickListener {
+            val group = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = rounded(if (index == activeIndex) Color.rgb(42, 57, 77) else Color.rgb(20, 29, 43), dp(10), Color.rgb(48, 68, 94))
+            }
+            group.addView(button((if (index == activeIndex) "● " else "") + tab.title.take(16).ifBlank { "New Tab" }, index == activeIndex) {
                 activeIndex = index
                 showActive()
-                true
-            }
-            tabStrip.addView(chip, LinearLayout.LayoutParams(0, dp(38), 1f).apply {
-                rightMargin = dp(6)
-            })
+            }, LinearLayout.LayoutParams(0, dp(38), 1f))
+            group.addView(button("×", false) { closeTab(index) }, LinearLayout.LayoutParams(dp(42), dp(38)))
+            tabStrip.addView(group, LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(6) })
         }
         tabStrip.addView(button("+", false) { openTab(false) }, LinearLayout.LayoutParams(dp(48), dp(38)))
     }
