@@ -1,184 +1,321 @@
 package com.meguddigiri.tvbrowser
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.app.DownloadManager
+import android.content.Context
+import android.content.Intent
+import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
+import android.speech.RecognizerIntent
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.graphics.Color
-import android.graphics.Typeface
+import android.webkit.DownloadListener
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.net.Uri
+import android.widget.Toast
+import org.json.JSONArray
+import java.util.Locale
+
+private const val HOME_URL = "https://www.google.com"
+private data class BrowserTab(val web: WebView, val privateMode: Boolean, var title: String = "New tab", var url: String = HOME_URL)
 
 class MainActivity : Activity() {
-    private lateinit var web: WebView
+    private lateinit var root: LinearLayout
     private lateinit var address: EditText
+    private lateinit var browser: LinearLayout
     private lateinit var progress: ProgressBar
     private lateinit var status: TextView
+    private val tabs = mutableListOf<BrowserTab>()
+    private val bookmarks = mutableListOf<Pair<String, String>>()
+    private var activeIndex = 0
     private val bg = Color.rgb(8, 13, 24)
     private val panel = Color.rgb(20, 30, 48)
     private val accent = Color.rgb(102, 217, 239)
+    private val prefs by lazy { getSharedPreferences("tv_browser", Context.MODE_PRIVATE) }
+    private val active: BrowserTab get() = tabs[activeIndex]
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
+        readBookmarks()
         buildUi()
-        if (savedInstanceState == null) web.loadUrl("https://www.google.com")
-        else web.restoreState(savedInstanceState)
+        openTab(false)
     }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply {
+        root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
-            setPadding(22, 14, 22, 12)
+            setPadding(18, 10, 18, 8)
         }
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        val addressRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val brand = TextView(this).apply {
-            text = "TV BROWSER"
-            textSize = 20f
-            setTextColor(accent)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 18, 0)
+            text = "TV BROWSER"; textSize = 18f; setTextColor(accent); setPadding(0, 0, 12, 0)
         }
-        header.addView(brand, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 58))
+        addressRow.addView(brand, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 52))
         address = EditText(this).apply {
-            hint = "Search Google or enter website"
-            textSize = 17f
-            isSingleLine = true
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.LTGRAY)
-            setSelectAllOnFocus(true)
-            imeOptions = EditorInfo.IME_ACTION_GO
-            setPadding(18, 0, 18, 0)
-            setBackgroundColor(panel)
-            isFocusable = true
-            isFocusableInTouchMode = true
+            hint = "Search or enter website"; textSize = 16f; isSingleLine = true
+            setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setSelectAllOnFocus(true)
+            imeOptions = EditorInfo.IME_ACTION_GO; setPadding(14, 0, 14, 0); setBackgroundColor(panel)
+            isFocusable = true; isFocusableInTouchMode = true
         }
-        header.addView(address, LinearLayout.LayoutParams(0, 54, 1f))
-        header.addView(makeButton("GO") { loadAddress() }, LinearLayout.LayoutParams(88, 54).apply { leftMargin = 10 })
-        header.addView(makeButton("BACK") { if (web.canGoBack()) web.goBack() }, LinearLayout.LayoutParams(96, 54).apply { leftMargin = 8 })
-        header.addView(makeButton("NEXT") { if (web.canGoForward()) web.goForward() }, LinearLayout.LayoutParams(96, 54).apply { leftMargin = 8 })
-        header.addView(makeButton("RELOAD") { web.reload() }, LinearLayout.LayoutParams(112, 54).apply { leftMargin = 8 })
-        root.addView(header)
+        addressRow.addView(address, LinearLayout.LayoutParams(0, 50, 1f))
+        addressRow.addView(button("MIC") { voiceSearch() }, LinearLayout.LayoutParams(70, 50).apply { leftMargin = 6 })
+        addressRow.addView(button("GO") { loadAddress() }, LinearLayout.LayoutParams(70, 50).apply { leftMargin = 6 })
+        root.addView(addressRow)
+
+        val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun addAction(label: String, width: Int = 104, action: () -> Unit) {
+            actions.addView(button(label, action), LinearLayout.LayoutParams(width, 44).apply { rightMargin = 6; topMargin = 6; bottomMargin = 6 })
+        }
+        addAction("NEW TAB") { openTab(false) }
+        addAction("TABS") { tabsDialog() }
+        addAction("BOOKMARK") { saveBookmark() }
+        addAction("SAVED") { bookmarksDialog() }
+        addAction("DOWNLOADS") { downloadsInfo() }
+        addAction("PRIVATE") { openTab(true) }
+        addAction("HOME") { homePage() }
+        addAction("BACK", 82) { goBack() }
+        addAction("NEXT", 82) { if (active.web.canGoForward()) active.web.goForward() }
+        addAction("RELOAD", 96) { active.web.reload() }
+        scroll.addView(actions)
+        root.addView(scroll)
 
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progressTintList = android.content.res.ColorStateList.valueOf(accent)
-            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(panel)
+            max = 100; progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            visibility = View.GONE
         }
         root.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 4))
-        web = WebView(this).apply {
-            setBackgroundColor(Color.WHITE)
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.loadsImagesAutomatically = true
-            settings.javaScriptCanOpenWindowsAutomatically = false
-            settings.mediaPlaybackRequiresUserGesture = true
-            isFocusable = true
-            isFocusableInTouchMode = true
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?) = false
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    address.setText(url ?: "")
-                    status.text = "Ready"
-                }
-            }
-            webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                    this@MainActivity.progress.progress = newProgress
-                    this@MainActivity.progress.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
-                }
-                override fun onReceivedTitle(view: WebView?, title: String?) {
-                    status.text = title ?: "TV Browser"
-                }
-            }
-        }
-        root.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        status = TextView(this).apply {
-            text = "Use remote arrows, OK and Back"
-            textSize = 12f
-            setTextColor(Color.LTGRAY)
-            setPadding(4, 8, 4, 0)
-        }
+        browser = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
+        root.addView(browser, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        status = TextView(this).apply { text = "Ready • Remote: arrows / OK / Back"; textSize = 12f; setTextColor(Color.LTGRAY); setPadding(4, 6, 4, 0) }
         root.addView(status)
         setContentView(root)
-        address.setOnEditorActionListener { _, action, event ->
-            if (action == EditorInfo.IME_ACTION_GO ||
-                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP)) {
+
+        address.setOnEditorActionListener { _, id, event ->
+            if (id == EditorInfo.IME_ACTION_GO || (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP)) {
                 loadAddress(); true
             } else false
         }
-        address.setOnFocusChangeListener { _, hasFocus ->
-            address.setBackgroundColor(if (hasFocus) Color.rgb(35, 55, 78) else panel)
+        address.setOnKeyListener { _, key, event ->
+            if (key == KeyEvent.KEYCODE_DPAD_DOWN && event.action == KeyEvent.ACTION_UP) { active.web.requestFocus(); true } else false
         }
-        address.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && event.action == KeyEvent.ACTION_UP) {
-                web.requestFocus(); true
-            } else false
-        }
-        address.requestFocus()
     }
 
-    private fun makeButton(label: String, action: () -> Unit): Button =
-        Button(this).apply {
-            text = label
-            textSize = 12f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(35, 55, 78))
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setOnClickListener { action() }
+    private fun button(label: String, action: () -> Unit) = Button(this).apply {
+        text = label; textSize = 11f; isAllCaps = false; setTextColor(Color.WHITE)
+        setBackgroundColor(Color.rgb(35, 55, 78)); isFocusable = true; isFocusableInTouchMode = true
+        setOnClickListener { action() }
+    }
+
+    private fun createWeb(privateMode: Boolean): WebView {
+        val web = WebView(this)
+        web.setBackgroundColor(Color.WHITE)
+        web.settings.javaScriptEnabled = true
+        web.settings.domStorageEnabled = !privateMode
+        web.settings.loadsImagesAutomatically = true
+        web.settings.javaScriptCanOpenWindowsAutomatically = false
+        web.settings.mediaPlaybackRequiresUserGesture = true
+        web.settings.saveFormData = !privateMode
+        web.settings.cacheMode = if (privateMode) android.webkit.WebSettings.LOAD_NO_CACHE else android.webkit.WebSettings.LOAD_DEFAULT
+        web.isFocusable = true
+        web.isFocusableInTouchMode = true
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?) = false
+            override fun onPageFinished(view: WebView?, url: String?) {
+                val tab = tabs.firstOrNull { it.web === web }
+                if (tab != null) {
+                    tab.url = url ?: tab.url
+                    address.setText(if (tab.url.startsWith("data:")) "" else tab.url)
+                }
+                status.text = if (privateMode) "Private tab • app history not saved" else "Ready"
+            }
         }
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, value: Int) {
+                progress.progress = value
+                progress.visibility = if (value in 1..99) View.VISIBLE else View.GONE
+            }
+            override fun onReceivedTitle(view: WebView?, title: String?) {
+                tabs.firstOrNull { it.web === web }?.title = title ?: "Web page"
+            }
+        }
+        web.setDownloadListener(DownloadListener { url, agent, disposition, mime, _ ->
+            download(url, agent, disposition, mime)
+        })
+        return web
+    }
+
+    private fun openTab(privateMode: Boolean) {
+        val web = createWeb(privateMode)
+        tabs.add(BrowserTab(web, privateMode))
+        activeIndex = tabs.lastIndex
+        showActive()
+        homePage()
+        status.text = if (privateMode) "Private tab opened" else "New tab opened"
+    }
+
+    private fun showActive() {
+        if (tabs.isEmpty()) return
+        browser.removeAllViews()
+        browser.addView(active.web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        address.setText(if (active.url.startsWith("data:") || active.url == HOME_URL) "" else active.url)
+        status.text = "Tab \${activeIndex + 1} of \${tabs.size}" + if (active.privateMode) " • Private" else ""
+    }
 
     private fun loadAddress() {
-        var value = address.text.toString().trim()
-        if (value.isEmpty()) return
-        if (!value.contains("://")) {
-            value = if (value.contains(".") && !value.contains(" "))
-                "https://$value"
-            else "https://www.google.com/search?q=" + Uri.encode(value)
+        val raw = address.text.toString().trim()
+        if (raw.isEmpty()) return
+        val target = if (raw.contains("://")) raw else if (raw.contains(".") && !raw.contains(" ")) "https://$raw"
+            else "https://www.google.com/search?q=" + Uri.encode(raw)
+        active.url = target
+        active.web.loadUrl(target)
+        active.web.requestFocus()
+    }
+
+    private fun homePage() {
+        val html = """
+            <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+            <style>body{margin:0;background:#080d18;color:white;font-family:Arial;text-align:center;padding:8vh 4vw}
+            h1{color:#66d9ef;font-size:38px}p{color:#b9c6d8;font-size:20px}
+            a{display:inline-block;margin:12px;padding:18px 28px;border-radius:12px;background:#23374e;color:white;text-decoration:none;font-size:20px}</style>
+            </head><body><h1>TV BROWSER</h1><p>Search the web or open your favourite sites</p>
+            <a href="https://www.google.com">Google</a><a href="https://www.youtube.com">YouTube</a>
+            <a href="https://www.wikipedia.org">Wikipedia</a><p>Use the address bar above to browse.</p></body></html>
+        """.trimIndent()
+        active.url = "data:text/html,home"
+        active.title = "Home"
+        address.setText("")
+        active.web.loadDataWithBaseURL("https://home.tvbrowser.local/", html, "text/html", "UTF-8", null)
+    }
+
+    private fun goBack() {
+        if (active.web.canGoBack()) active.web.goBack()
+        else if (tabs.size > 1) closeTab(activeIndex)
+        else homePage()
+    }
+
+    private fun closeTab(index: Int) {
+        if (tabs.size == 1) { active.web.clearHistory(); homePage(); return }
+        val old = tabs.removeAt(index)
+        old.web.stopLoading(); old.web.loadUrl("about:blank"); old.web.destroy()
+        activeIndex = (index - 1).coerceAtLeast(0)
+        showActive()
+    }
+
+    private fun tabsDialog() {
+        val names = tabs.mapIndexed { i, t -> (if (i == activeIndex) "✓ " else "") +
+            (if (t.privateMode) "Private • " else "") + t.title }.toMutableList()
+        names.add("＋ Open new tab")
+        AlertDialog.Builder(this).setTitle("Tabs (\${tabs.size})").setItems(names.toTypedArray()) { _, which ->
+            if (which == tabs.size) openTab(false) else { activeIndex = which; showActive() }
+        }.setNegativeButton("Close current") { _, _ -> closeTab(activeIndex) }.show()
+    }
+
+    private fun readBookmarks() {
+        bookmarks.clear()
+        try {
+            val arr = JSONArray(prefs.getString("bookmarks", "[]"))
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                bookmarks.add(item.optString("title") to item.optString("url"))
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun persistBookmarks() {
+        val arr = JSONArray()
+        bookmarks.forEach { (title, url) -> arr.put(org.json.JSONObject().put("title", title).put("url", url)) }
+        prefs.edit().putString("bookmarks", arr.toString()).apply()
+    }
+
+    private fun saveBookmark() {
+        val url = active.url
+        if (url.startsWith("data:")) { Toast.makeText(this, "Open a website first", Toast.LENGTH_SHORT).show(); return }
+        if (bookmarks.any { it.second == url }) { Toast.makeText(this, "Already saved", Toast.LENGTH_SHORT).show(); return }
+        bookmarks.add((active.title.ifBlank { url }) to url)
+        persistBookmarks()
+        Toast.makeText(this, "Bookmark saved", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun bookmarksDialog() {
+        if (bookmarks.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("Bookmarks").setMessage("No saved bookmarks yet.").setPositiveButton("OK", null).show()
+            return
         }
-        web.loadUrl(value)
-        web.requestFocus()
+        AlertDialog.Builder(this).setTitle("Saved bookmarks").setItems(bookmarks.map { it.first }.toTypedArray()) { _, which ->
+            active.url = bookmarks[which].second
+            active.web.loadUrl(active.url)
+        }.setNeutralButton("Delete all") { _, _ -> bookmarks.clear(); persistBookmarks() }
+            .setNegativeButton("Close", null).show()
+    }
+
+    private fun download(url: String, agent: String?, disposition: String?, mime: String?) {
+        try {
+            val name = android.webkit.URLUtil.guessFileName(url, disposition, mime)
+            val request = DownloadManager.Request(Uri.parse(url)).apply {
+                setTitle(name); setDescription("TV Browser download")
+                if (mime != null) setMimeType(mime)
+                if (!agent.isNullOrBlank()) addRequestHeader("User-Agent", agent)
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setDestinationInExternalFilesDir(this@MainActivity, Environment.DIRECTORY_DOWNLOADS, name)
+            }
+            (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+            Toast.makeText(this, "Download started: $name", Toast.LENGTH_LONG).show()
+        } catch (_: Exception) { Toast.makeText(this, "Download could not start", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun downloadsInfo() {
+        val folder = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.absolutePath ?: "App downloads folder"
+        AlertDialog.Builder(this).setTitle("Downloads").setMessage("Browser downloads are saved here:\\n$folder\\nAndroid shows a notification when a download finishes.")
+            .setPositiveButton("OK", null).show()
+    }
+
+    private fun voiceSearch() {
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your search")
+            }
+            startActivityForResult(intent, 701)
+        } catch (_: Exception) { Toast.makeText(this, "Voice recognition is not available on this TV", Toast.LENGTH_LONG).show() }
+    }
+
+    @Deprecated("Android compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 701 && resultCode == RESULT_OK) {
+            val words = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!words.isNullOrBlank()) { address.setText(words); loadAddress() }
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (web.canGoBack()) { web.goBack(); return true }
-            return super.onKeyDown(keyCode, event)
-        }
-        if (keyCode == KeyEvent.KEYCODE_MENU) {
-            address.requestFocus(); address.selectAll(); return true
-        }
+        if (keyCode == KeyEvent.KEYCODE_BACK) { goBack(); return true }
+        if (keyCode == KeyEvent.KEYCODE_MENU) { tabsDialog(); return true }
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        web.saveState(outState)
-        super.onSaveInstanceState(outState)
-    }
-
     override fun onDestroy() {
-        if (::web.isInitialized) {
-            web.stopLoading()
-            web.destroy()
-        }
+        tabs.forEach { it.web.stopLoading(); it.web.destroy() }
+        tabs.clear()
         super.onDestroy()
     }
 }
