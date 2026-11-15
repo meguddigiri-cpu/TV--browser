@@ -176,7 +176,7 @@ class MainActivity : Activity() {
         browser.removeAllViews()
         browser.addView(active.web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         address.setText(if (active.url.startsWith("data:") || active.url == HOME_URL) "" else active.url)
-        status.text = "Tab \${activeIndex + 1} of \${tabs.size}" + if (active.privateMode) " • Private" else ""
+        status.text = "Tab ${activeIndex + 1} of ${tabs.size}" + if (active.privateMode) " • Private" else ""
     }
 
     private fun loadAddress() {
@@ -223,7 +223,7 @@ class MainActivity : Activity() {
         val names = tabs.mapIndexed { i, t -> (if (i == activeIndex) "✓ " else "") +
             (if (t.privateMode) "Private • " else "") + t.title }.toMutableList()
         names.add("＋ Open new tab")
-        AlertDialog.Builder(this).setTitle("Tabs (\${tabs.size})").setItems(names.toTypedArray()) { _, which ->
+        AlertDialog.Builder(this).setTitle("Tabs (${tabs.size})").setItems(names.toTypedArray()) { _, which ->
             if (which == tabs.size) openTab(false) else { activeIndex = which; showActive() }
         }.setNegativeButton("Close current") { _, _ -> closeTab(activeIndex) }.show()
     }
