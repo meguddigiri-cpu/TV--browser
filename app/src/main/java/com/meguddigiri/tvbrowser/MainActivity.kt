@@ -20,6 +20,8 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.CookieManager
+import android.webkit.WebSettings
 import android.widget.Button
 import android.widget.EditText
 import android.widget.HorizontalScrollView
@@ -41,6 +43,9 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private val tabs = mutableListOf<BrowserTab>()
     private val bookmarks = mutableListOf<Pair<String, String>>()
+    private val history = mutableListOf<Pair<String, String>>()
+    private var desktopMode = false
+    private var textZoom = 100
     private var activeIndex = 0
     private val bg = Color.rgb(8, 13, 24)
     private val panel = Color.rgb(20, 30, 48)
@@ -117,7 +122,11 @@ class MainActivity : Activity() {
         addAction("▣  TABS", 94) { tabsDialog() }
         addAction("☆  BOOKMARK", 128) { saveBookmark() }
         addAction("★  SAVED", 100) { bookmarksDialog() }
-        addAction("↓  DOWNLOADS", 132) { downloadsInfo() }
+        addAction("↓  DOWNLOADS", 132) { downloadsDialog() }
+        addAction("◷  HISTORY", 104) { historyDialog() }
+        addAction("⚙  SETTINGS", 112) { settingsDialog() }
+        addAction("⌕  FIND", 84) { findOnPage() }
+        addAction("↗  SHARE", 90) { sharePage() }
         addAction("◉  PRIVATE", 112) { openTab(true) }
         addAction("⌂  HOME", 94) { homePage() }
         addAction("←", 64) { goBack() }
@@ -209,6 +218,12 @@ class MainActivity : Activity() {
         web.settings.loadsImagesAutomatically = true
         web.settings.javaScriptCanOpenWindowsAutomatically = false
         web.settings.mediaPlaybackRequiresUserGesture = true
+        web.settings.setSupportZoom(true)
+        web.settings.builtInZoomControls = true
+        web.settings.displayZoomControls = false
+        web.settings.useWideViewPort = desktopMode
+        web.settings.loadWithOverviewMode = desktopMode
+        web.settings.textZoom = textZoom
         web.settings.saveFormData = !privateMode
         web.settings.cacheMode = if (privateMode) android.webkit.WebSettings.LOAD_NO_CACHE else android.webkit.WebSettings.LOAD_DEFAULT
         web.isFocusable = true
@@ -219,6 +234,7 @@ class MainActivity : Activity() {
                 val tab = tabs.firstOrNull { it.web === web }
                 if (tab != null) {
                     tab.url = url ?: tab.url
+                    if (!privateMode && !tab.url.startsWith("data:") && tab.url != "about:blank") addHistory(tab.title, tab.url)
                     address.setText(if (tab.url.startsWith("data:")) "" else tab.url)
                 }
                 status.text = if (privateMode) "Private tab • app history not saved" else "Ready"
@@ -367,6 +383,148 @@ class MainActivity : Activity() {
         val folder = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.absolutePath ?: "App downloads folder"
         AlertDialog.Builder(this).setTitle("Downloads").setMessage("Browser downloads are saved here:\\n$folder\\nAndroid shows a notification when a download finishes.")
             .setPositiveButton("OK", null).show()
+    }
+
+    private fun addHistory(title: String, url: String) {
+        if (url.isBlank()) return
+        history.removeAll { it.second == url }
+        history.add(0, (title.ifBlank { url }) to url)
+        if (history.size > 300) history.removeAt(history.lastIndex)
+        val arr = JSONArray()
+        history.forEach { (t, u) -> arr.put(org.json.JSONObject().put("title", t).put("url", u)) }
+        prefs.edit().putString("history", arr.toString()).apply()
+    }
+
+    private fun loadHistory() {
+        history.clear()
+        try {
+            val arr = JSONArray(prefs.getString("history", "[]"))
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                history.add(item.optString("title") to item.optString("url"))
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun historyDialog() {
+        loadHistory()
+        if (history.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("History").setMessage("No browsing history yet. Private tabs are not added.").setPositiveButton("OK", null).show()
+            return
+        }
+        AlertDialog.Builder(this).setTitle("Recent history").setItems(history.take(80).map { it.first }.toTypedArray()) { _, which ->
+            active.url = history[which].second
+            active.web.loadUrl(active.url)
+        }.setNeutralButton("Clear history") { _, _ ->
+            history.clear()
+            prefs.edit().remove("history").apply()
+            Toast.makeText(this, "History cleared", Toast.LENGTH_SHORT).show()
+        }.setNegativeButton("Close", null).show()
+    }
+
+    private fun findOnPage() {
+        val field = EditText(this).apply { hint = "Find text on this page"; singleLine = true }
+        AlertDialog.Builder(this).setTitle("Find in page").setView(field)
+            .setPositiveButton("Find next") { _, _ ->
+                val q = field.text.toString()
+                if (q.isNotBlank()) active.web.findAllAsync(q)
+            }.setNeutralButton("Clear highlights") { _, _ -> active.web.clearMatches() }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun sharePage() {
+        val url = active.web.url ?: active.url
+        if (url.isBlank() || url.startsWith("data:")) {
+            Toast.makeText(this, "Open a website first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, url)
+        }
+        startActivity(Intent.createChooser(intent, "Share page"))
+    }
+
+    private fun downloadsDialog() {
+        val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val cursor = manager.query(DownloadManager.Query().setFilterByStatus(
+            DownloadManager.STATUS_PENDING or DownloadManager.STATUS_RUNNING or
+                DownloadManager.STATUS_PAUSED or DownloadManager.STATUS_SUCCESSFUL or DownloadManager.STATUS_FAILED
+        ))
+        val lines = mutableListOf<String>()
+        cursor?.use {
+            val titleCol = it.getColumnIndex(DownloadManager.COLUMN_TITLE)
+            val statusCol = it.getColumnIndex(DownloadManager.COLUMN_STATUS)
+            val reasonCol = it.getColumnIndex(DownloadManager.COLUMN_REASON)
+            val idCol = it.getColumnIndex(DownloadManager.COLUMN_ID)
+            while (it.moveToNext()) {
+                val state = when (it.getInt(statusCol)) {
+                    DownloadManager.STATUS_SUCCESSFUL -> "Completed"
+                    DownloadManager.STATUS_FAILED -> "Failed"
+                    DownloadManager.STATUS_RUNNING -> "Downloading"
+                    DownloadManager.STATUS_PAUSED -> "Paused"
+                    else -> "Waiting"
+                }
+                lines.add(it.getString(titleCol) + " — " + state + " (#" + it.getLong(idCol) + ")")
+            }
+        }
+        val message = if (lines.isEmpty()) "No downloads found. Downloads started in this app appear here." else lines.take(25).joinToString("\n")
+        AlertDialog.Builder(this).setTitle("Downloads").setMessage(message)
+            .setPositiveButton("Open downloads folder") { _, _ ->
+                val folder = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                if (folder != null) {
+                    val uri = Uri.parse(folder.absolutePath)
+                    try { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+                    catch (_: Exception) { downloadsInfo() }
+                }
+            }.setNegativeButton("Close", null).show()
+    }
+
+    private fun settingsDialog() {
+        val options = arrayOf(
+            "Desktop site: " + if (desktopMode) "ON" else "OFF",
+            "Increase text size",
+            "Decrease text size",
+            "Clear cache and cookies",
+            "Clear browsing history"
+        )
+        AlertDialog.Builder(this).setTitle("NOVA Settings").setItems(options) { _, which ->
+            when (which) {
+                0 -> {
+                    desktopMode = !desktopMode
+                    tabs.forEach { tab ->
+                        tab.web.settings.userAgentString = if (desktopMode) {
+                            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        } else null
+                        tab.web.settings.useWideViewPort = desktopMode
+                        tab.web.settings.loadWithOverviewMode = desktopMode
+                        tab.web.reload()
+                    }
+                    Toast.makeText(this, "Desktop site " + if (desktopMode) "enabled" else "disabled", Toast.LENGTH_SHORT).show()
+                }
+                1 -> {
+                    textZoom = (textZoom + 10).coerceAtMost(200)
+                    tabs.forEach { it.web.settings.textZoom = textZoom }
+                    Toast.makeText(this, "Text size: " + textZoom + "%", Toast.LENGTH_SHORT).show()
+                }
+                2 -> {
+                    textZoom = (textZoom - 10).coerceAtLeast(70)
+                    tabs.forEach { it.web.settings.textZoom = textZoom }
+                    Toast.makeText(this, "Text size: " + textZoom + "%", Toast.LENGTH_SHORT).show()
+                }
+                3 -> {
+                    tabs.forEach { it.web.clearCache(true); it.web.clearFormData() }
+                    CookieManager.getInstance().removeAllCookies(null)
+                    CookieManager.getInstance().flush()
+                    Toast.makeText(this, "Cache, cookies and saved form data cleared", Toast.LENGTH_LONG).show()
+                }
+                4 -> {
+                    history.clear()
+                    prefs.edit().remove("history").apply()
+                    Toast.makeText(this, "Browsing history cleared", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.setNegativeButton("Close", null).show()
     }
 
     private fun voiceSearch() {
