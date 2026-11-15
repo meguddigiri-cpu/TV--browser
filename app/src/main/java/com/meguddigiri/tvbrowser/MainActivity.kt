@@ -57,70 +57,147 @@ class MainActivity : Activity() {
         openTab(false)
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
     private fun buildUi() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(bg)
-            setPadding(18, 10, 18, 8)
+            setBackgroundColor(Color.rgb(7, 12, 23))
+            setPadding(dp(24), dp(16), dp(24), dp(12))
         }
-        val addressRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val brand = TextView(this).apply {
-            text = "TV BROWSER"; textSize = 18f; setTextColor(accent); setPadding(0, 0, 12, 0)
-        }
-        addressRow.addView(brand, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 52))
-        address = EditText(this).apply {
-            hint = "Search or enter website"; textSize = 16f; isSingleLine = true
-            setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY); setSelectAllOnFocus(true)
-            imeOptions = EditorInfo.IME_ACTION_GO; setPadding(14, 0, 14, 0); setBackgroundColor(panel)
-            isFocusable = true; isFocusableInTouchMode = true
-        }
-        addressRow.addView(address, LinearLayout.LayoutParams(0, 50, 1f))
-        addressRow.addView(button("MIC") { voiceSearch() }, LinearLayout.LayoutParams(70, 50).apply { leftMargin = 6 })
-        addressRow.addView(button("GO") { loadAddress() }, LinearLayout.LayoutParams(70, 50).apply { leftMargin = 6 })
-        root.addView(addressRow)
 
-        val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, dp(20), 0)
+        }
+        brand.addView(TextView(this).apply {
+            text = "NOVA"; textSize = 23f; setTextColor(Color.rgb(111, 220, 255))
+            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+            letterSpacing = 0.12f
+        })
+        brand.addView(TextView(this).apply {
+            text = "TV BROWSER"; textSize = 9f; setTextColor(Color.rgb(139, 157, 183)); letterSpacing = 0.18f
+        })
+        header.addView(brand, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(58)))
+
+        address = EditText(this).apply {
+            hint = "Search Google or enter a website"
+            textSize = 16f
+            isSingleLine = true
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.rgb(139, 157, 183))
+            setSelectAllOnFocus(true)
+            imeOptions = EditorInfo.IME_ACTION_GO
+            setPadding(dp(18), 0, dp(18), 0)
+            background = rounded(Color.rgb(22, 32, 50), dp(16), Color.rgb(48, 69, 96))
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        header.addView(address, LinearLayout.LayoutParams(0, dp(54), 1f))
+        header.addView(button("MIC") { voiceSearch() }, LinearLayout.LayoutParams(dp(76), dp(50)).apply { leftMargin = dp(10) })
+        header.addView(button("GO  →", true) { loadAddress() }, LinearLayout.LayoutParams(dp(92), dp(50)).apply { leftMargin = dp(8) })
+        root.addView(header)
+
+        val scroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+        }
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun addAction(label: String, width: Int = 104, action: () -> Unit) {
-            actions.addView(button(label, action), LinearLayout.LayoutParams(width, 44).apply { rightMargin = 6; topMargin = 6; bottomMargin = 6 })
+            actions.addView(button(label, false, action), LinearLayout.LayoutParams(dp(width), dp(44)).apply {
+                rightMargin = dp(7); topMargin = dp(12); bottomMargin = dp(12)
+            })
         }
-        addAction("NEW TAB") { openTab(false) }
-        addAction("TABS") { tabsDialog() }
-        addAction("BOOKMARK") { saveBookmark() }
-        addAction("SAVED") { bookmarksDialog() }
-        addAction("DOWNLOADS") { downloadsInfo() }
-        addAction("PRIVATE") { openTab(true) }
-        addAction("HOME") { homePage() }
-        addAction("BACK", 82) { goBack() }
-        addAction("NEXT", 82) { if (active.web.canGoForward()) active.web.goForward() }
-        addAction("RELOAD", 96) { active.web.reload() }
+        addAction("＋  NEW TAB", 116) { openTab(false) }
+        addAction("▣  TABS", 94) { tabsDialog() }
+        addAction("☆  BOOKMARK", 128) { saveBookmark() }
+        addAction("★  SAVED", 100) { bookmarksDialog() }
+        addAction("↓  DOWNLOADS", 132) { downloadsInfo() }
+        addAction("◉  PRIVATE", 112) { openTab(true) }
+        addAction("⌂  HOME", 94) { homePage() }
+        addAction("←", 64) { goBack() }
+        addAction("→", 64) { if (active.web.canGoForward()) active.web.goForward() }
+        addAction("↻  RELOAD", 104) { active.web.reload() }
         scroll.addView(actions)
         root.addView(scroll)
 
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100; progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            max = 100
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(94, 211, 255))
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(22, 32, 50))
             visibility = View.GONE
         }
-        root.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 4))
-        browser = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
-        root.addView(browser, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        status = TextView(this).apply { text = "Ready • Remote: arrows / OK / Back"; textSize = 12f; setTextColor(Color.LTGRAY); setPadding(4, 6, 4, 0) }
+        root.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
+        browser = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(12, 19, 32))
+            background = rounded(Color.rgb(12, 19, 32), dp(18), Color.rgb(35, 51, 74))
+            clipToOutline = true
+        }
+        val browserParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        browserParams.topMargin = dp(4)
+        root.addView(browser, browserParams)
+        status = TextView(this).apply {
+            text = "READY  •  Use your remote to browse"
+            textSize = 11f
+            setTextColor(Color.rgb(139, 157, 183))
+            letterSpacing = 0.06f
+            setPadding(dp(4), dp(9), dp(4), 0)
+        }
         root.addView(status)
         setContentView(root)
 
         address.setOnEditorActionListener { _, id, event ->
-            if (id == EditorInfo.IME_ACTION_GO || (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP)) {
+            if (id == EditorInfo.IME_ACTION_GO ||
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP)) {
                 loadAddress(); true
             } else false
         }
         address.setOnKeyListener { _, key, event ->
-            if (key == KeyEvent.KEYCODE_DPAD_DOWN && event.action == KeyEvent.ACTION_UP) { active.web.requestFocus(); true } else false
+            if (key == KeyEvent.KEYCODE_DPAD_DOWN && event.action == KeyEvent.ACTION_UP) {
+                active.web.requestFocus(); true
+            } else false
         }
     }
 
-    private fun button(label: String, action: () -> Unit) = Button(this).apply {
-        text = label; textSize = 11f; isAllCaps = false; setTextColor(Color.WHITE)
-        setBackgroundColor(Color.rgb(35, 55, 78)); isFocusable = true; isFocusableInTouchMode = true
+    private fun rounded(color: Int, radius: Int, stroke: Int): android.graphics.drawable.GradientDrawable =
+        android.graphics.drawable.GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radius.toFloat()
+            setStroke(dp(1), stroke)
+        }
+
+    private fun button(label: String, primary: Boolean = false, action: () -> Unit) = Button(this).apply {
+        text = label
+        textSize = 12f
+        isAllCaps = false
+        letterSpacing = 0.02f
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        setTextColor(if (primary) Color.rgb(5, 18, 31) else Color.rgb(224, 236, 250))
+        background = rounded(
+            if (primary) Color.rgb(105, 218, 255) else Color.rgb(22, 34, 53),
+            dp(13),
+            if (primary) Color.rgb(105, 218, 255) else Color.rgb(48, 68, 94)
+        )
+        elevation = dp(2).toFloat()
+        isFocusable = true
+        isFocusableInTouchMode = true
+        setPadding(dp(8), 0, dp(8), 0)
+        setOnFocusChangeListener { view, focused ->
+            view.scaleX = if (focused) 1.045f else 1f
+            view.scaleY = if (focused) 1.045f else 1f
+            view.elevation = if (focused) dp(8).toFloat() else dp(2).toFloat()
+            background = rounded(
+                if (primary) Color.rgb(105, 218, 255) else if (focused) Color.rgb(39, 61, 88) else Color.rgb(22, 34, 53),
+                dp(13),
+                if (focused) Color.rgb(105, 218, 255) else Color.rgb(48, 68, 94)
+            )
+        }
         setOnClickListener { action() }
     }
 
