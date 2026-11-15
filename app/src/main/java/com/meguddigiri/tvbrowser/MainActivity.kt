@@ -269,12 +269,17 @@ class MainActivity : Activity() {
     private fun homePage() {
         val html = """
             <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-            <style>body{margin:0;background:#080d18;color:white;font-family:Arial;text-align:center;padding:8vh 4vw}
-            h1{color:#66d9ef;font-size:38px}p{color:#b9c6d8;font-size:20px}
-            a{display:inline-block;margin:12px;padding:18px 28px;border-radius:12px;background:#23374e;color:white;text-decoration:none;font-size:20px}</style>
-            </head><body><h1>TV BROWSER</h1><p>Search the web or open your favourite sites</p>
-            <a href="https://www.google.com">Google</a><a href="https://www.youtube.com">YouTube</a>
-            <a href="https://www.wikipedia.org">Wikipedia</a><p>Use the address bar above to browse.</p></body></html>
+            <style>
+            *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 50% 15%,#183657 0%,#0b1729 42%,#070d18 100%);color:#f2f7ff;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;text-align:center}
+            .wrap{width:88%;max-width:1050px;padding:38px 20px}.mark{font-size:13px;letter-spacing:7px;color:#77ddff;font-weight:bold}
+            h1{font-size:54px;letter-spacing:2px;margin:15px 0 8px}.sub{font-size:21px;color:#a9bad0;margin:0 0 42px}
+            .grid{display:flex;justify-content:center;gap:22px;flex-wrap:wrap}.tile{width:190px;min-height:145px;padding:24px 12px;border:1px solid #29415f;border-radius:20px;background:linear-gradient(145deg,#1a2c45,#101c30);color:#f4f8ff;text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:20px;font-weight:bold}
+            .tile:focus{outline:3px solid #70dcff;background:#25415f;transform:scale(1.04)}.ico{font-size:38px;color:#79ddff}.hint{margin-top:38px;color:#8196b1;font-size:15px}
+            </style></head><body><main class="wrap"><div class="mark">YOUR TV. YOUR WEB.</div><h1>NOVA</h1><p class="sub">A better way to explore the internet.</p>
+            <section class="grid"><a class="tile" href="https://www.google.com"><span class="ico">⌕</span>Google Search</a>
+            <a class="tile" href="https://www.youtube.com"><span class="ico">▶</span>YouTube</a>
+            <a class="tile" href="https://www.wikipedia.org"><span class="ico">◈</span>Wikipedia</a></section>
+            <p class="hint">Use the address bar above to search or enter any website.</p></main></body></html>
         """.trimIndent()
         active.url = "data:text/html,home"
         active.title = "Home"
