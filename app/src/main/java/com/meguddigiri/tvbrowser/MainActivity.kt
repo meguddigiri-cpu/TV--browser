@@ -33,10 +33,12 @@ import org.json.JSONArray
 import java.util.Locale
 
 private const val HOME_URL = "https://www.google.com"
+private const val DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 private data class BrowserTab(val web: WebView, val privateMode: Boolean, var title: String = "New tab", var url: String = HOME_URL)
 
 class MainActivity : Activity() {
     private lateinit var root: LinearLayout
+    private lateinit var tabStrip: LinearLayout
     private lateinit var address: EditText
     private lateinit var browser: LinearLayout
     private lateinit var progress: ProgressBar
@@ -44,7 +46,7 @@ class MainActivity : Activity() {
     private val tabs = mutableListOf<BrowserTab>()
     private val bookmarks = mutableListOf<Pair<String, String>>()
     private val history = mutableListOf<Pair<String, String>>()
-    private var desktopMode = false
+    private var desktopMode = true
     private var textZoom = 100
     private var activeIndex = 0
     private val bg = Color.rgb(8, 13, 24)
@@ -107,6 +109,13 @@ class MainActivity : Activity() {
         header.addView(button("MIC") { voiceSearch() }, LinearLayout.LayoutParams(dp(76), dp(50)).apply { leftMargin = dp(10) })
         header.addView(button("GO  →", true) { loadAddress() }, LinearLayout.LayoutParams(dp(92), dp(50)).apply { leftMargin = dp(8) })
         root.addView(header)
+
+        tabStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, dp(5))
+        }
+        root.addView(tabStrip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
 
         val scroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -214,6 +223,11 @@ class MainActivity : Activity() {
         val web = WebView(this)
         web.setBackgroundColor(Color.WHITE)
         web.settings.javaScriptEnabled = true
+        web.settings.userAgentString = if (desktopMode) DESKTOP_USER_AGENT else WebSettings.getDefaultUserAgent(this)
+        web.settings.useWideViewPort = true
+        web.settings.loadWithOverviewMode = true
+        web.settings.mediaPlaybackRequiresUserGesture = false
+        web.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         web.settings.domStorageEnabled = !privateMode
         web.settings.loadsImagesAutomatically = true
         web.settings.javaScriptCanOpenWindowsAutomatically = false
@@ -266,10 +280,28 @@ class MainActivity : Activity() {
 
     private fun showActive() {
         if (tabs.isEmpty()) return
+        renderTabStrip()
         browser.removeAllViews()
         browser.addView(active.web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         address.setText(if (active.url.startsWith("data:") || active.url == HOME_URL) "" else active.url)
         status.text = "Tab ${activeIndex + 1} of ${tabs.size}" + if (active.privateMode) " • Private" else ""
+    }
+
+    private fun renderTabStrip() {
+        tabStrip.removeAllViews()
+        tabs.forEachIndexed { index, tab ->
+            val label = (if (index == activeIndex) "● " else "") + (tab.title.take(18).ifBlank { "New Tab" }) + "  ×"
+            val chip = button(label, index == activeIndex) { closeTab(index) }
+            chip.setOnLongClickListener {
+                activeIndex = index
+                showActive()
+                true
+            }
+            tabStrip.addView(chip, LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                rightMargin = dp(6)
+            })
+        }
+        tabStrip.addView(button("+", false) { openTab(false) }, LinearLayout.LayoutParams(dp(48), dp(38)))
     }
 
     private fun loadAddress() {
@@ -286,16 +318,25 @@ class MainActivity : Activity() {
         val html = """
             <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
             <style>
-            *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 50% 15%,#183657 0%,#0b1729 42%,#070d18 100%);color:#f2f7ff;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;text-align:center}
-            .wrap{width:88%;max-width:1050px;padding:38px 20px}.mark{font-size:13px;letter-spacing:7px;color:#77ddff;font-weight:bold}
-            h1{font-size:54px;letter-spacing:2px;margin:15px 0 8px}.sub{font-size:21px;color:#a9bad0;margin:0 0 42px}
-            .grid{display:flex;justify-content:center;gap:22px;flex-wrap:wrap}.tile{width:190px;min-height:145px;padding:24px 12px;border:1px solid #29415f;border-radius:20px;background:linear-gradient(145deg,#1a2c45,#101c30);color:#f4f8ff;text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:20px;font-weight:bold}
-            .tile:focus{outline:3px solid #70dcff;background:#25415f;transform:scale(1.04)}.ico{font-size:38px;color:#79ddff}.hint{margin-top:38px;color:#8196b1;font-size:15px}
-            </style></head><body><main class="wrap"><div class="mark">YOUR TV. YOUR WEB.</div><h1>NOVA</h1><p class="sub">A better way to explore the internet.</p>
-            <section class="grid"><a class="tile" href="https://www.google.com"><span class="ico">⌕</span>Google Search</a>
+            *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#202124;color:#e8eaed;font-family:Arial,sans-serif;text-align:center}
+            .top{height:54px;display:flex;justify-content:flex-end;align-items:center;gap:24px;padding:0 34px;color:#e8eaed;font-size:14px}
+            .main{padding-top:9vh;margin:auto;width:90%;max-width:1100px}.logo{font-size:76px;letter-spacing:-5px;font-weight:500;margin:35px 0 30px;color:#f1f3f4}
+            .search{height:58px;max-width:700px;margin:0 auto 44px;background:#f1f3f4;border-radius:32px;display:flex;align-items:center;padding:0 24px;gap:15px}
+            .search input{border:0;outline:0;background:transparent;color:#202124;font-size:20px;width:100%}.search button{border:0;background:transparent;font-size:22px;color:#4285f4}
+            .grid{display:flex;justify-content:center;gap:20px;flex-wrap:wrap}.tile{width:150px;min-height:126px;padding:18px 8px;color:#e8eaed;text-decoration:none;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:16px}
+            .tile:focus,.tile:hover{outline:2px solid #8ab4f8;background:#303134}.ico{width:54px;height:54px;border-radius:50%;background:#303134;display:grid;place-items:center;font-size:26px;font-weight:bold;color:#8ab4f8}
+            .hint{margin-top:60px;color:#9aa0a6;font-size:14px}
+            </style></head><body><div class="top"><span>Gmail</span><span>Images</span><span>▦</span></div>
+            <main class="main"><div class="logo">Google</div>
+            <form class="search" action="https://www.google.com/search"><span>⌕</span><input name="q" placeholder="Search Google or type a URL"><button type="submit">🎙</button></form>
+            <section class="grid">
             <a class="tile" href="https://www.youtube.com"><span class="ico">▶</span>YouTube</a>
-            <a class="tile" href="https://www.wikipedia.org"><span class="ico">◈</span>Wikipedia</a></section>
-            <p class="hint">Use the address bar above to search or enter any website.</p></main></body></html>
+            <a class="tile" href="https://mail.google.com"><span class="ico">M</span>Gmail</a>
+            <a class="tile" href="https://www.wikipedia.org"><span class="ico">W</span>Wikipedia</a>
+            <a class="tile" href="https://www.instagram.com"><span class="ico">◎</span>Instagram</a>
+            <a class="tile" href="https://www.facebook.com"><span class="ico">f</span>Facebook</a>
+            <a class="tile" href="https://www.google.com/maps"><span class="ico">⌖</span>Maps</a>
+            </section><p class="hint">Search the web or open one of your favourite websites</p></main></body></html>
         """.trimIndent()
         active.url = "data:text/html,home"
         active.title = "Home"
