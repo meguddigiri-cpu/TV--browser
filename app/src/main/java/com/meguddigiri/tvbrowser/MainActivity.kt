@@ -466,7 +466,7 @@ class MainActivity : Activity() {
     }
 
     private fun findOnPage() {
-        val field = EditText(this).apply { hint = "Find text on this page"; singleLine = true }
+        val field = EditText(this).apply { hint = "Find text on this page"; isSingleLine = true }
         AlertDialog.Builder(this).setTitle("Find in page").setView(field)
             .setPositiveButton("Find next") { _, _ ->
                 val q = field.text.toString()
